@@ -1,0 +1,19 @@
+# Deep Agents 核心依赖
+deepagents>=0.3.0
+langchain>=0.3.0
+langchain-core>=0.3.0
+langgraph>=0.2.0
+langchain-anthropic>=0.3.0
+
+# 配置管理
+pyyaml>=6.0.0
+
+# 日志和追踪
+loguru>=0.7.0
+
+# 可选工具
+tavily-python>=0.5.0
+
+# 开发工具
+python-dotenv>=1.0.0
+
