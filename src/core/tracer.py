@@ -42,9 +42,8 @@ class LLMTracer:
             logger.info(f"LLM Tracer 已启用: {self.trace_file}")
     
     def _get_trace_file(self) -> Path:
-        """获取追踪文件路径"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{self.user_id}_{self.tenant_id}_{self.session_id}_{timestamp}.json"
+        """获取追踪文件路径，相同会话使用同一个文件"""
+        filename = f"{self.user_id}_{self.tenant_id}_{self.session_id}.json"
         return self.trace_dir / filename
     
     def trace_request(
@@ -105,13 +104,18 @@ class LLMTracer:
             "error": error,
         }
         
-        # 提取响应内容
-        if hasattr(response, "content"):
-            trace_record["content"] = response.content
+        
+        # 提取响应内容，确保可以 JSON 格式化
+        if response is None:
+            trace_record["response"] = None
+        elif hasattr(response, "content"):
+            trace_record["response"] = self._to_json_serializable(response.content)
         elif hasattr(response, "text"):
-            trace_record["content"] = response.text
+            trace_record["response"] = self._to_json_serializable(response.text)
+        elif isinstance(response, dict):
+            trace_record["response"] = self._to_json_serializable(response)
         else:
-            trace_record["content"] = str(response)
+            trace_record["response"] = str(response)
         
         # 提取 token 使用信息
         if hasattr(response, "usage_metadata"):
@@ -123,11 +127,37 @@ class LLMTracer:
         logger.debug(f"LLM 响应: duration={duration:.2f}s, error={error}")
         return trace_record
     
+    def _to_json_serializable(self, obj: Any) -> Any:
+        """
+        将对象转换为可 JSON 序列化的格式
+
+        Args:
+            obj: 任意对象
+
+        Returns:
+            可 JSON 序列化的对象
+        """
+        if obj is None:
+            return None
+        elif isinstance(obj, (str, int, float, bool)):
+            return obj
+        elif isinstance(obj, dict):
+            return {k: self._to_json_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, (list, tuple)):
+            return [self._to_json_serializable(item) for item in obj]
+        elif hasattr(obj, "dict"):
+            # Pydantic model 或类似对象
+            return self._to_json_serializable(obj.dict())
+        elif hasattr(obj, "__dict__"):
+            return self._to_json_serializable(obj.__dict__)
+        else:
+            return str(obj)
+        
     def _write_trace(self, trace_record: Dict[str, Any]) -> None:
         """写入追踪记录到文件"""
         try:
             with open(self.trace_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(trace_record, ensure_ascii=False) + "\n")
+                f.write(json.dumps(trace_record, ensure_ascii=False, default=str) + "\n")
         except Exception as e:
             logger.error(f"写入追踪记录失败: {e}")
     
