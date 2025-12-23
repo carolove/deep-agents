@@ -17,3 +17,6 @@ tavily-python>=0.5.0
 # 开发工具
 python-dotenv>=1.0.0
 
+# 交互式终端
+prompt_toolkit>=3.0.0
+
