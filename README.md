@@ -4,11 +4,12 @@
 
 ## 项目特性
 
-✅ **完整的配置管理** - 支持 YAML 配置文件和环境变量覆盖  
-✅ **日志系统** - 基于 loguru 的结构化日志,支持文件和控制台输出  
-✅ **LLM 追踪** - 自动记录所有 LLM 请求和响应,便于调试和分析  
-✅ **Skills 支持** - 灵活的技能插件系统,支持动态加载自定义工具  
-✅ **DeepAgents 框架** - 集成规划、文件系统、子代理等高级能力  
+✅ **完整的配置管理** - 支持 YAML 配置文件和环境变量覆盖
+✅ **详细的日志系统** - 基于 loguru 的结构化日志,自动记录所有工具调用和 API 请求
+✅ **LLM 追踪** - 自动记录所有 LLM 请求和响应,便于调试和分析
+✅ **Skills 支持** - 灵活的技能插件系统,支持动态加载自定义工具
+✅ **DeepAgents 框架** - 集成规划、文件系统、子代理等高级能力
+✅ **工具调用日志** - 自动记录所有工具调用的参数、结果和耗时
 
 ## 项目结构
 
@@ -144,6 +145,50 @@ Skills 会在应用启动时自动加载。
 
 日志文件位于 `logs/app.log`,包含应用运行的详细信息。
 
+**日志级别配置**:
+
+在 `conf/app.yaml` 中设置:
+
+```yaml
+log:
+  level: "info"  # 可选: debug, info, warning, error
+```
+
+或在代码中设置:
+
+```python
+from src.core import setup_logger
+setup_logger(log_level="DEBUG")  # 查看详细日志
+```
+
+### 工具调用日志
+
+所有工具调用都会自动记录,包括:
+
+- 🔍 **网络搜索**: 记录查询参数、API 调用耗时、结果数量
+- 🧮 **计算器**: 记录表达式和计算结果
+- 🕐 **时间查询**: 记录查询时间
+
+**示例日志输出**:
+
+```
+2025-12-23 21:07:25 | INFO | 🔍 开始网络搜索: query='LangChain 是什么', max_results=5
+2025-12-23 21:07:25 | INFO | 📡 调用 Tavily API...
+2025-12-23 21:07:27 | INFO | ✅ Tavily API 调用成功: 耗时=2.26s, 结果数=5
+2025-12-23 21:07:27 | INFO | 🎯 网络搜索完成: 返回 5 条结果
+```
+
+**DEBUG 级别额外信息**:
+
+```
+2025-12-23 21:07:25 | DEBUG | 使用 API Key: tvly-dev...nXWS
+2025-12-23 21:07:27 | DEBUG | 搜索结果详情:
+2025-12-23 21:07:27 | DEBUG |   [1] LangChain 框架介绍
+2025-12-23 21:07:27 | DEBUG |       URL: https://docs.langchain.com.cn/
+```
+
+详见 [日志记录指南](LOGGING_GUIDE.md)
+
 ### LLM 追踪
 
 所有 LLM 请求和响应会记录到 `logs/tracing/` 目录,文件格式:
@@ -169,7 +214,36 @@ Skills 会在应用启动时自动加载。
 
 详见 [DeepAgents 文档](https://docs.langchain.com/oss/python/deepagents/overview)
 
+
+## 技术栈
+
+- **框架**: DeepAgents (LangChain + LangGraph)
+- **LLM**: Anthropic Claude / DeepSeek
+- **日志**: Loguru
+- **配置**: PyYAML
+- **工具**: Tavily (网络搜索)
+
+## 下一步扩展
+
+可以考虑添加:
+- 更多 Skills (数据库、API 调用等)
+- Web UI 界面
+- 多用户支持
+- 持久化存储(使用 StoreBackend)
+- 子代理配置
+- 人机协作工作流
+- 性能监控和分析
+
+
+## 参考资源
+
+- [DeepAgents 文档](https://docs.langchain.com/oss/python/deepagents/overview)
+- [DeepAgents GitHub](https://github.com/langchain-ai/deepagents)
+- [LangChain 文档](https://docs.langchain.com/)
+- [LangGraph 文档](https://langchain-ai.github.io/langgraph/)
+
 ## 许可证
 
 MIT License
+
 

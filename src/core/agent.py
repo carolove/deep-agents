@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Callable
 from langchain_core.messages import BaseMessage
 from langchain_anthropic import ChatAnthropic
 from deepagents import create_deep_agent
-from langgraph.graph.graph import CompiledGraph
+from langgraph.graph.state import CompiledStateGraph
 
 from .config import AppConfig
 from .logger import get_logger
@@ -72,7 +72,7 @@ class DeepAgentApp:
         logger.info(f"创建模型: {self.config.anthropic.model}")
         return ChatAnthropic(**model_kwargs)
     
-    def _create_agent(self) -> CompiledGraph:
+    def _create_agent(self) -> CompiledStateGraph:
         """创建 Deep Agent"""
         agent_kwargs = {
             "model": self.model,
@@ -93,42 +93,43 @@ class DeepAgentApp:
     
     def invoke(
         self,
-        messages: List[Dict[str, str]],
+        input_data: Dict[str, Any],
         **kwargs
     ) -> Dict[str, Any]:
         """
         同步调用 agent
-        
+
         Args:
-            messages: 消息列表
+            input_data: 输入数据,格式为 {"messages": [...]}
             **kwargs: 其他参数
-            
+
         Returns:
             agent 响应
         """
+        messages = input_data.get("messages", [])
         logger.info(f"开始处理请求: messages_count={len(messages)}")
-        
+
         # 追踪请求
         request_trace = self.tracer.trace_request(
             model=self.config.anthropic.model,
             messages=messages,
             **kwargs
         )
-        
+
         start_time = time.time()
         error = None
         response = None
-        
+
         try:
             # 调用 agent
-            response = self.agent.invoke({"messages": messages}, **kwargs)
+            response = self.agent.invoke(input_data, **kwargs)
             logger.info("请求处理完成")
-            
+
         except Exception as e:
             error = str(e)
             logger.error(f"请求处理失败: {e}")
             raise
-        
+
         finally:
             # 追踪响应
             duration = time.time() - start_time
@@ -138,47 +139,48 @@ class DeepAgentApp:
                 duration=duration,
                 error=error,
             )
-        
+
         return response
     
     async def ainvoke(
         self,
-        messages: List[Dict[str, str]],
+        input_data: Dict[str, Any],
         **kwargs
     ) -> Dict[str, Any]:
         """
         异步调用 agent
-        
+
         Args:
-            messages: 消息列表
+            input_data: 输入数据,格式为 {"messages": [...]}
             **kwargs: 其他参数
-            
+
         Returns:
             agent 响应
         """
+        messages = input_data.get("messages", [])
         logger.info(f"开始处理异步请求: messages_count={len(messages)}")
-        
+
         # 追踪请求
         request_trace = self.tracer.trace_request(
             model=self.config.anthropic.model,
             messages=messages,
             **kwargs
         )
-        
+
         start_time = time.time()
         error = None
         response = None
-        
+
         try:
             # 调用 agent
-            response = await self.agent.ainvoke({"messages": messages}, **kwargs)
+            response = await self.agent.ainvoke(input_data, **kwargs)
             logger.info("异步请求处理完成")
-            
+
         except Exception as e:
             error = str(e)
             logger.error(f"异步请求处理失败: {e}")
             raise
-        
+
         finally:
             # 追踪响应
             duration = time.time() - start_time
@@ -188,6 +190,6 @@ class DeepAgentApp:
                 duration=duration,
                 error=error,
             )
-        
+
         return response
 

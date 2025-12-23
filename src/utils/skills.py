@@ -53,35 +53,33 @@ class SkillManager:
     def _load_skill_file(self, skill_file: Path) -> None:
         """
         加载单个 skill 文件
-        
+
         Args:
             skill_file: skill 文件路径
         """
         # 构建模块名
         module_name = f"src.skills.{skill_file.stem}"
-        
+
         try:
             # 动态导入模块
             module = importlib.import_module(module_name)
-            
+
             # 查找所有函数
             for name, obj in inspect.getmembers(module):
-                # 检查是否是工具函数
-                if callable(obj) and hasattr(obj, "__wrapped__"):
-                    # 这是一个被 @tool 装饰的函数
-                    self.skills.append(obj)
-                    logger.debug(f"加载 skill: {name} from {skill_file.name}")
-                elif callable(obj) and not name.startswith("_"):
-                    # 普通函数,尝试包装为 tool
-                    if inspect.isfunction(obj) and obj.__module__ == module.__name__:
-                        # 只包装定义在当前模块的函数
-                        try:
-                            wrapped_tool = tool(obj)
-                            self.skills.append(wrapped_tool)
-                            logger.debug(f"包装并加载 skill: {name} from {skill_file.name}")
-                        except Exception as e:
-                            logger.warning(f"无法包装函数 {name}: {e}")
-        
+                # 跳过私有函数和导入的对象
+                if name.startswith("_"):
+                    continue
+
+                # 检查是否是 LangChain StructuredTool
+                # @tool 装饰器会创建一个 StructuredTool 对象
+                if (hasattr(obj, "name") and
+                    hasattr(obj, "description") and
+                    hasattr(obj, "func")):
+                    # 检查是否定义在当前模块
+                    if hasattr(obj.func, "__module__") and obj.func.__module__ == module.__name__:
+                        self.skills.append(obj)
+                        logger.debug(f"加载 skill: {obj.name} from {skill_file.name}")
+
         except Exception as e:
             logger.error(f"导入模块失败 {module_name}: {e}")
             raise
