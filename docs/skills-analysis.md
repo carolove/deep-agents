@@ -356,6 +356,43 @@ class SkillsMiddleware(AgentMiddleware):
 - **项目级**: `{PROJECT_ROOT}/.deepagents/skills/`
 - **优先级**: 项目级 skills 会覆盖同名的用户级 skills
 
+
+### skills 未被加载真正原因
+```mermaid
+flowchart TB
+    subgraph Problem["❌ 当前项目问题"]
+        direction TB
+        P1["DeepAgentApp 使用 tools 参数"]
+        P2["但 deepagents 框架已有<br/>FilesystemMiddleware"]
+        P3["导致 tools 与框架工具冲突"]
+        P1 --> P3
+        P2 --> P3
+    end
+    
+    subgraph CLI["✅ deepagents-cli 正确做法"]
+        direction TB
+        C1["SkillsMiddleware 是真正的<br/>AgentMiddleware"]
+        C2["继承 langchain AgentMiddleware"]
+        C3["实现 before_agent 加载 skills"]
+        C4["实现 wrap_model_call<br/>注入 system prompt"]
+        C1 --> C2
+        C2 --> C3
+        C3 --> C4
+    end
+    
+    subgraph Framework["deepagents 框架内置"]
+        F1["FilesystemMiddleware<br/>提供 read_file, write_file,<br/>ls, edit_file, glob, grep, execute"]
+        F2["TodoListMiddleware"]
+        F3["SubAgentMiddleware"]
+    end
+    
+    CLI --> |"通过 middleware 参数传入"| Framework
+    Problem --> |"tools 参数不是正确方式"| Framework
+    
+    style Problem fill:#ffebee,stroke:#c62828
+    style CLI fill:#e8f5e9,stroke:#2e7d32
+    style Framework fill:#e3f2fd,stroke:#1565c0
+```
 ## 八、总结
 
 本项目**完整实现了 Anthropic Agent Skills 规范**，核心价值在于：

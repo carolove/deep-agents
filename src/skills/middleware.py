@@ -1,22 +1,45 @@
 """Middleware 用于加载和将 agent skills 暴露给系统提示词。
 
 这个中间件实现 Anthropic 的 "Agent Skills" 模式，采用渐进式披露:
-1. 在会话开始时从 SKILL.md 文件解析 YAML frontmatter
-2. 将 skills 元数据 (name + description) 注入系统提示词
-3. 当 skill 与任务相关时，Agent 使用文件系统工具读取完整的 SKILL.md 内容
-4. Agent 使用 bash 工具执行 skill 中的脚本
+1. 在每次 agent 执行前从 SKILL.md 文件解析 YAML frontmatter (before_agent)
+2. 在每次 model 调用时将 skills 信息注入系统提示词 (wrap_model_call)
+3. Agent 使用框架内置的 read_file 工具读取完整的 SKILL.md 内容
+4. Agent 使用框架内置的 execute 工具执行 skill 中的脚本
 
 Skills 目录结构 (每个 agent + 项目):
 用户级: ~/.deep-agents/{AGENT_NAME}/skills/
 项目级: {PROJECT_ROOT}/.deep-agents/skills/
+
+使用方式:
+    from src.skills import SkillsMiddleware
+
+    middleware = SkillsMiddleware(
+        skills_dir=Path.home() / ".deep-agents/agent/skills",
+        assistant_id="agent",
+        project_skills_dir=project_root / ".deep-agents/skills",
+    )
+
+    agent = create_deep_agent(
+        model=model,
+        middleware=[middleware],  # 传入 middleware 参数
+        ...
+    )
 """
 
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import List, Optional, Callable
+from typing import List, NotRequired, TypedDict, cast
+
+from langchain.agents.middleware.types import (
+    AgentMiddleware,
+    AgentState,
+    ModelRequest,
+    ModelResponse,
+)
+from langgraph.runtime import Runtime
 
 from .load import SkillMetadata, list_skills
 from ..core.logger import get_logger
-from ..tools.filesystem import get_filesystem_tools
 
 logger = get_logger("skills.middleware")
 
@@ -56,9 +79,27 @@ Skills 遵循**渐进式披露**模式 - 你知道它们存在（上面显示的
 """
 
 
-class SkillsMiddleware:
+class SkillsState(AgentState):
+    """Skills 中间件的状态类型。"""
+
+    skills_metadata: NotRequired[List[SkillMetadata]]
+    """已加载的 skill 元数据列表 (name, description, path)。"""
+
+
+class SkillsStateUpdate(TypedDict):
+    """Skills 中间件的状态更新类型。"""
+
+    skills_metadata: List[SkillMetadata]
+    """已加载的 skill 元数据列表。"""
+
+
+class SkillsMiddleware(AgentMiddleware):
     """用于加载和暴露 agent skills 的中间件。
-    
+
+    继承 langchain AgentMiddleware，实现:
+    - before_agent(): 在每次 agent 执行前加载 skills 元数据
+    - wrap_model_call(): 在每次 model 调用时注入 skills 到 system prompt
+
     实现 Anthropic 的 agent skills 模式:
     - 在会话开始时从 YAML frontmatter 加载 skills 元数据
     - 将 skills 列表注入系统提示词以便发现
@@ -68,7 +109,14 @@ class SkillsMiddleware:
     - 用户 skills: ~/.deep-agents/{AGENT_NAME}/skills/
     - 项目 skills: {PROJECT_ROOT}/.deep-agents/skills/
     - 同名的项目 skills 会覆盖用户 skills
+
+    使用框架内置工具:
+    - deepagents 的 FilesystemMiddleware 提供 read_file, execute 等工具
+    - Agent 使用 read_file 读取 SKILL.md
+    - Agent 使用 execute 执行 skill 脚本
     """
+
+    state_schema = SkillsState
 
     def __init__(
         self,
@@ -92,26 +140,11 @@ class SkillsMiddleware:
         # 使用绝对路径，避免 ~ 符号导致的路径遍历检测问题
         self.user_skills_display = str(self.skills_dir)
         self.system_prompt_template = SKILLS_SYSTEM_PROMPT
-        self._skills_metadata: List[SkillMetadata] = []
 
         logger.info(f"Skills 中间件初始化: assistant_id={assistant_id}")
         logger.info(f"  用户 skills 目录: {self.skills_dir}")
         if self.project_skills_dir:
             logger.info(f"  项目 skills 目录: {self.project_skills_dir}")
-
-    def load_skills(self) -> List[SkillMetadata]:
-        """加载所有 skills 元数据。"""
-        logger.info("中间件开始加载 skills...")
-        self._skills_metadata = list_skills(
-            user_skills_dir=self.skills_dir,
-            project_skills_dir=self.project_skills_dir,
-        )
-        logger.info(f"中间件加载完成: {len(self._skills_metadata)} 个 skills")
-        return self._skills_metadata
-    
-    def get_skills_metadata(self) -> List[SkillMetadata]:
-        """获取已加载的 skills 元数据。"""
-        return self._skills_metadata
 
     def _format_skills_locations(self) -> str:
         """格式化 skills 位置用于系统提示词显示。"""
@@ -139,56 +172,110 @@ class SkillsMiddleware:
             lines.append("**用户 Skills:**")
             for skill in user_skills:
                 lines.append(f"- **{skill['name']}**: {skill['description']}")
-                lines.append(f"  → 阅读 `{skill['path']}` 获取完整说明")
+                lines.append(f"  → 使用 read_file 阅读 `{skill['path']}` 获取完整说明")
             lines.append("")
 
         if project_skills:
             lines.append("**项目 Skills:**")
             for skill in project_skills:
                 lines.append(f"- **{skill['name']}**: {skill['description']}")
-                lines.append(f"  → 阅读 `{skill['path']}` 获取完整说明")
+                lines.append(f"  → 使用 read_file 阅读 `{skill['path']}` 获取完整说明")
 
         return "\n".join(lines)
 
-    def get_skills_prompt(self) -> str:
-        """获取要注入系统提示词的 skills 文档。"""
-        if not self._skills_metadata:
-            self.load_skills()
+    # ========== AgentMiddleware 接口实现 ==========
 
+    def before_agent(self, state: SkillsState, runtime: Runtime) -> SkillsStateUpdate | None:  # noqa: ARG002
+        """在 agent 执行前加载 skills 元数据。
+
+        每次 agent 交互时都会调用，以捕获 skills 目录的任何变化。
+
+        Args:
+            state: 当前 agent 状态。
+            runtime: 运行时上下文。
+
+        Returns:
+            更新后的状态，包含 skills_metadata。
+        """
+        logger.info("before_agent: 加载 skills...")
+        skills = list_skills(
+            user_skills_dir=self.skills_dir,
+            project_skills_dir=self.project_skills_dir,
+        )
+        logger.info(f"before_agent: 加载了 {len(skills)} 个 skills")
+        return SkillsStateUpdate(skills_metadata=skills)
+
+    def wrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelResponse:
+        """将 skills 文档注入系统提示词。
+
+        每次 model 调用时都会运行，确保 skills 信息始终可用。
+
+        Args:
+            request: 正在处理的 model 请求。
+            handler: 处理修改后请求的 handler 函数。
+
+        Returns:
+            handler 返回的 model 响应。
+        """
+        # 从 state 获取 skills 元数据
+        skills_metadata = request.state.get("skills_metadata", [])
+
+        # 格式化 skills 位置和列表
         skills_locations = self._format_skills_locations()
-        skills_list = self._format_skills_list(self._skills_metadata)
+        skills_list = self._format_skills_list(skills_metadata)
 
-        prompt = self.system_prompt_template.format(
+        # 格式化 skills 文档
+        skills_section = self.system_prompt_template.format(
             skills_locations=skills_locations,
             skills_list=skills_list,
         )
-        logger.debug(f"生成 skills 提示词: {len(prompt)} 字符")
-        return prompt
 
-    def enhance_system_prompt(self, system_prompt: Optional[str] = None) -> str:
-        """增强系统提示词，添加 skills 文档。"""
-        logger.info("增强系统提示词，注入 skills 信息...")
-        skills_section = self.get_skills_prompt()
+        # 注入到 system prompt
+        if request.system_prompt:
+            system_prompt = request.system_prompt + "\n\n" + skills_section
+        else:
+            system_prompt = skills_section
 
-        if system_prompt:
-            enhanced = system_prompt + "\n\n" + skills_section
-            logger.info(f"系统提示词已增强: 原始 {len(system_prompt)} 字符 → 增强后 {len(enhanced)} 字符")
-            return enhanced
-        logger.info(f"使用纯 skills 提示词: {len(skills_section)} 字符")
-        return skills_section
+        logger.debug(f"wrap_model_call: 注入 skills 到 system prompt ({len(skills_section)} 字符)")
+        return handler(request.override(system_prompt=system_prompt))
 
-    def get_tools(self) -> List[Callable]:
-        """获取 skills 系统需要的工具列表。
+    async def awrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse:
+        """(异步) 将 skills 文档注入系统提示词。
 
-        返回文件系统工具，让 Agent 能够:
-        - 读取 SKILL.md 获取完整说明
-        - 读取 references/ 目录中的参考文档
-        - 执行 skill 脚本
-        - 列出 skill 目录内容
+        Args:
+            request: 正在处理的 model 请求。
+            handler: 处理修改后请求的异步 handler 函数。
 
         Returns:
-            LangChain 工具列表
+            handler 返回的 model 响应。
         """
-        tools = get_filesystem_tools()
-        logger.info(f"Skills 中间件提供 {len(tools)} 个工具: {[t.name for t in tools]}")
-        return tools
+        # 从 state 获取 skills 元数据
+        state = cast(SkillsState, request.state)
+        skills_metadata = state.get("skills_metadata", [])
+
+        # 格式化 skills 位置和列表
+        skills_locations = self._format_skills_locations()
+        skills_list = self._format_skills_list(skills_metadata)
+
+        # 格式化 skills 文档
+        skills_section = self.system_prompt_template.format(
+            skills_locations=skills_locations,
+            skills_list=skills_list,
+        )
+
+        # 注入到 system prompt
+        if request.system_prompt:
+            system_prompt = request.system_prompt + "\n\n" + skills_section
+        else:
+            system_prompt = skills_section
+
+        logger.debug(f"awrap_model_call: 注入 skills 到 system prompt ({len(skills_section)} 字符)")
+        return await handler(request.override(system_prompt=system_prompt))

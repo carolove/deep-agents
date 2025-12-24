@@ -1,11 +1,12 @@
 """基础使用示例 - 展示 Anthropic Skills 渐进式披露模式
 
 这个示例展示:
-1. 加载 skills 元数据 (name + description)
-2. 将元数据注入系统提示词
-3. 提供文件系统工具让 Agent 能够:
-   - 使用 read_file 读取 SKILL.md 获取完整说明
-   - 使用 bash_execute 执行 skill 脚本
+1. 创建 SkillsMiddleware (继承 AgentMiddleware)
+2. 将 middleware 传入 create_deep_agent
+3. SkillsMiddleware 自动:
+   - before_agent(): 加载 skills 元数据
+   - wrap_model_call(): 注入 skills 到 system prompt
+4. Agent 使用框架内置的 read_file/execute 工具访问 skills
 """
 import sys
 from pathlib import Path
@@ -34,46 +35,42 @@ def main():
         log_level=config.log.level,
     )
 
-    # 加载 skills (使用 Anthropic Skills 渐进式披露模式)
+    # 创建 skills 中间件 (真正的 AgentMiddleware)
     print("\n" + "="*50)
-    print("加载 Skills (Anthropic Skills 模式)...")
+    print("创建 Skills 中间件 (AgentMiddleware)...")
     print("-"*50)
 
-    # 创建 skills 中间件
     skills_middleware = SkillsMiddleware(
         skills_dir=Path.home() / ".deep-agents/agent/skills",
         assistant_id="agent",
         project_skills_dir=project_root / "src/skills",
     )
 
-    # 加载并显示 skills
-    skills_metadata = skills_middleware.load_skills()
-    print(f"\n已加载 {len(skills_metadata)} 个 skills:")
-    for skill in skills_metadata:
-        print(f"  - {skill['name']}: {skill['description'][:50]}...")
-
-    # 获取 skills 需要的工具 (文件系统工具)
-    skills_tools = skills_middleware.get_tools()
-    print(f"\nSkills 工具: {[t.name for t in skills_tools]}")
+    print(f"Skills 中间件已创建")
+    print(f"  - 用户 skills 目录: {skills_middleware.skills_dir}")
+    print(f"  - 项目 skills 目录: {skills_middleware.project_skills_dir}")
 
     # 基础系统提示词
     base_system_prompt = """你是一个智能助手,可以帮助用户完成各种任务。
 
-你拥有文件系统工具,可以:
-- 使用 read_file 读取文件内容
-- 使用 bash_execute 执行命令和脚本
-- 使用 list_directory 查看目录内容
+你拥有文件系统工具 (由 deepagents 框架提供):
+- read_file: 读取文件内容
+- write_file: 写入文件
+- ls: 列出目录
+- execute: 执行命令
 
-请根据用户的需求,合理使用这些工具和 skills 来完成任务。"""
+请根据用户的需求,合理使用这些工具和 skills 来完成任务。
+当需要使用 skill 时,先用 read_file 读取 SKILL.md 获取完整说明。"""
 
-    # 使用中间件增强系统提示词 (注入 skills 信息)
-    system_prompt = skills_middleware.enhance_system_prompt(base_system_prompt)
-
-    # 创建 agent 应用，传入 skills 工具
+    # 创建 agent 应用，传入 middleware 参数
+    # SkillsMiddleware 会自动:
+    # - before_agent(): 每次交互前加载 skills
+    # - wrap_model_call(): 每次 model 调用时注入 skills 到 system prompt
     app = DeepAgentApp(
         config=config,
-        tools=skills_tools,  # 使用 skills 提供的文件系统工具
-        system_prompt=system_prompt,
+        tools=[],  # 不需要额外工具，框架已提供 FilesystemMiddleware
+        system_prompt=base_system_prompt,
+        middleware=[skills_middleware],  # 传入 middleware 而不是 tools
     )
     
     # 测试对话
