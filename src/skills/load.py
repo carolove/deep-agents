@@ -23,7 +23,6 @@ description: Structured approach to conducting thorough web research
 
 from __future__ import annotations
 
-import logging
 import re
 from typing import TYPE_CHECKING, NotRequired, TypedDict
 
@@ -32,7 +31,9 @@ import yaml
 if TYPE_CHECKING:
     from pathlib import Path
 
-logger = logging.getLogger(__name__)
+from ..core.logger import get_logger
+
+logger = get_logger("skills.loader")
 
 # SKILL.md 文件最大大小 (10MB)
 MAX_SKILL_FILE_SIZE = 10 * 1024 * 1024
@@ -182,6 +183,7 @@ def _list_skills(skills_dir: Path, source: str) -> list[SkillMetadata]:
     """
     skills_dir = skills_dir.expanduser()
     if not skills_dir.exists():
+        logger.debug(f"Skills 目录不存在: {skills_dir}")
         return []
 
     try:
@@ -189,6 +191,7 @@ def _list_skills(skills_dir: Path, source: str) -> list[SkillMetadata]:
     except (OSError, RuntimeError):
         return []
 
+    logger.info(f"扫描 {source} skills 目录: {skills_dir}")
     skills: list[SkillMetadata] = []
 
     for skill_dir in skills_dir.iterdir():
@@ -208,7 +211,9 @@ def _list_skills(skills_dir: Path, source: str) -> list[SkillMetadata]:
         metadata = _parse_skill_metadata(skill_md_path, source=source)
         if metadata:
             skills.append(metadata)
+            logger.info(f"  ✓ 加载 skill: {metadata['name']} ({metadata['description'][:50]}...)")
 
+    logger.info(f"从 {source} 目录加载了 {len(skills)} 个 skills")
     return skills
 
 
@@ -226,6 +231,7 @@ def list_skills(
     Returns:
         合并后的 skill 元数据列表，项目 skills 优先于用户 skills。
     """
+    logger.info("开始加载 skills...")
     all_skills: dict[str, SkillMetadata] = {}
 
     # 先加载用户 skills (基础)
@@ -238,7 +244,18 @@ def list_skills(
     if project_skills_dir:
         project_skills = _list_skills(project_skills_dir, source="project")
         for skill in project_skills:
+            if skill["name"] in all_skills:
+                logger.info(f"  项目 skill '{skill['name']}' 覆盖用户 skill")
             all_skills[skill["name"]] = skill
 
-    return list(all_skills.values())
+    result = list(all_skills.values())
+    logger.info(f"Skills 加载完成: 共 {len(result)} 个可用 skills")
+
+    # 打印 skills 汇总
+    if result:
+        logger.info("可用 skills 列表:")
+        for skill in result:
+            logger.info(f"  - {skill['name']}: {skill['description'][:60]}...")
+
+    return result
 

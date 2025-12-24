@@ -1,17 +1,30 @@
 """LLM 请求/响应追踪模块"""
+import atexit
 import json
-import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 from .logger import get_logger
 
 logger = get_logger("tracer")
 
+# 全局追踪器注册表，用于在程序退出时保存所有追踪器的数据
+_tracer_registry: List["LLMTracer"] = []
+
+
+def _save_all_tracers():
+    """在程序退出时保存所有追踪器的数据"""
+    for tracer in _tracer_registry:
+        tracer.save()
+
+
+# 注册退出处理函数
+atexit.register(_save_all_tracers)
+
 
 class LLMTracer:
-    """LLM 交互追踪器"""
-    
+    """LLM 交互追踪器 - 输出 JSON 数组格式"""
+
     def __init__(
         self,
         enabled: bool = True,
@@ -22,7 +35,7 @@ class LLMTracer:
     ):
         """
         初始化追踪器
-        
+
         Args:
             enabled: 是否启用追踪
             trace_dir: 追踪文件存放目录
@@ -35,10 +48,18 @@ class LLMTracer:
         self.user_id = user_id
         self.tenant_id = tenant_id
         self.session_id = session_id or datetime.now().strftime("%Y%m%d_%H%M%S")
-        
+
+        # 内存中的追踪记录列表
+        self._traces: List[Dict[str, Any]] = []
+        self._saved = False
+
         if self.enabled:
             self.trace_dir.mkdir(parents=True, exist_ok=True)
             self.trace_file = self._get_trace_file()
+            # 如果文件已存在，加载现有数据
+            self._load_existing_traces()
+            # 注册到全局注册表
+            _tracer_registry.append(self)
             logger.info(f"LLM Tracer 已启用: {self.trace_file}")
     
     def _get_trace_file(self) -> Path:
@@ -154,14 +175,63 @@ class LLMTracer:
             return str(obj)
         
     def _write_trace(self, trace_record: Dict[str, Any]) -> None:
-        """写入追踪记录到文件"""
+        """添加追踪记录到内存列表"""
+        self._traces.append(trace_record)
+        self._saved = False
+
+    def _load_existing_traces(self) -> None:
+        """加载现有的追踪文件数据"""
+        if self.trace_file.exists():
+            try:
+                with open(self.trace_file, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                    if content:
+                        data = json.loads(content)
+                        if isinstance(data, list):
+                            self._traces = data
+                        else:
+                            # 兼容旧格式：单个对象或 JSONL
+                            self._traces = [data]
+                        logger.debug(f"加载了 {len(self._traces)} 条现有追踪记录")
+            except json.JSONDecodeError:
+                # 尝试按 JSONL 格式解析（兼容旧格式）
+                try:
+                    with open(self.trace_file, "r", encoding="utf-8") as f:
+                        self._traces = []
+                        for line in f:
+                            line = line.strip()
+                            if line:
+                                self._traces.append(json.loads(line))
+                        logger.debug(f"从 JSONL 格式加载了 {len(self._traces)} 条追踪记录")
+                except Exception as e:
+                    logger.warning(f"无法解析现有追踪文件，将创建新文件: {e}")
+                    self._traces = []
+            except Exception as e:
+                logger.warning(f"加载追踪文件失败: {e}")
+                self._traces = []
+
+    def save(self) -> None:
+        """将追踪记录保存为 JSON 数组格式"""
+        if not self.enabled or self._saved:
+            return
+
         try:
-            with open(self.trace_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(trace_record, ensure_ascii=False, default=str) + "\n")
+            with open(self.trace_file, "w", encoding="utf-8") as f:
+                json.dump(self._traces, f, ensure_ascii=False, indent=2, default=str)
+            self._saved = True
+            logger.debug(f"保存了 {len(self._traces)} 条追踪记录到 {self.trace_file}")
         except Exception as e:
-            logger.error(f"写入追踪记录失败: {e}")
-    
+            logger.error(f"保存追踪记录失败: {e}")
+
     def get_trace_file_path(self) -> Optional[Path]:
         """获取当前追踪文件路径"""
         return self.trace_file if self.enabled else None
+
+    def get_traces(self) -> List[Dict[str, Any]]:
+        """获取所有追踪记录"""
+        return self._traces.copy()
+
+    def __del__(self):
+        """析构时保存数据"""
+        self.save()
 

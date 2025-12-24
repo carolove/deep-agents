@@ -14,6 +14,9 @@ from pathlib import Path
 from typing import List, Optional
 
 from .load import SkillMetadata, list_skills
+from ..core.logger import get_logger
+
+logger = get_logger("skills.middleware")
 
 
 # Skills 系统文档
@@ -73,7 +76,7 @@ class SkillsMiddleware:
         project_skills_dir: str | Path | None = None,
     ) -> None:
         """初始化 skills 中间件。
-        
+
         Args:
             skills_dir: 用户级 skills 目录的路径。
             assistant_id: Agent 标识符。
@@ -87,13 +90,20 @@ class SkillsMiddleware:
         self.user_skills_display = f"~/.deep-agents/{assistant_id}/skills"
         self.system_prompt_template = SKILLS_SYSTEM_PROMPT
         self._skills_metadata: List[SkillMetadata] = []
-    
+
+        logger.info(f"Skills 中间件初始化: assistant_id={assistant_id}")
+        logger.info(f"  用户 skills 目录: {self.skills_dir}")
+        if self.project_skills_dir:
+            logger.info(f"  项目 skills 目录: {self.project_skills_dir}")
+
     def load_skills(self) -> List[SkillMetadata]:
         """加载所有 skills 元数据。"""
+        logger.info("中间件开始加载 skills...")
         self._skills_metadata = list_skills(
             user_skills_dir=self.skills_dir,
             project_skills_dir=self.project_skills_dir,
         )
+        logger.info(f"中间件加载完成: {len(self._skills_metadata)} 个 skills")
         return self._skills_metadata
     
     def get_skills_metadata(self) -> List[SkillMetadata]:
@@ -141,20 +151,26 @@ class SkillsMiddleware:
         """获取要注入系统提示词的 skills 文档。"""
         if not self._skills_metadata:
             self.load_skills()
-        
+
         skills_locations = self._format_skills_locations()
         skills_list = self._format_skills_list(self._skills_metadata)
-        
-        return self.system_prompt_template.format(
+
+        prompt = self.system_prompt_template.format(
             skills_locations=skills_locations,
             skills_list=skills_list,
         )
-    
+        logger.debug(f"生成 skills 提示词: {len(prompt)} 字符")
+        return prompt
+
     def enhance_system_prompt(self, system_prompt: Optional[str] = None) -> str:
         """增强系统提示词，添加 skills 文档。"""
+        logger.info("增强系统提示词，注入 skills 信息...")
         skills_section = self.get_skills_prompt()
-        
+
         if system_prompt:
-            return system_prompt + "\n\n" + skills_section
+            enhanced = system_prompt + "\n\n" + skills_section
+            logger.info(f"系统提示词已增强: 原始 {len(system_prompt)} 字符 → 增强后 {len(enhanced)} 字符")
+            return enhanced
+        logger.info(f"使用纯 skills 提示词: {len(skills_section)} 字符")
         return skills_section
 

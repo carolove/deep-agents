@@ -15,7 +15,7 @@ from prompt_toolkit.styles import Style
 
 from src.core import load_config, setup_logger
 from src.core.agent import DeepAgentApp
-from src.utils import load_skills
+from src.skills import SkillsMiddleware
 
 
 class ThinkingModeManager:
@@ -141,22 +141,39 @@ def main():
         log_level=config.log.level,
     )
 
-    # 加载 skills
-    skills = load_skills()
-    print(f"\n已加载 {len(skills)} 个 skills")
+    # 加载 skills (使用新的 SKILL.md 方式)
+    print("\n" + "="*60)
+    print("加载 Skills...")
+    print("-"*60)
+
+    # 创建 skills 中间件
+    skills_middleware = SkillsMiddleware(
+        skills_dir=Path.home() / ".deep-agents/agent/skills",
+        assistant_id="agent",
+        project_skills_dir=project_root / "src/skills",
+    )
+
+    # 加载并显示 skills
+    skills_metadata = skills_middleware.load_skills()
+    print(f"\n已加载 {len(skills_metadata)} 个 skills:")
+    for skill in skills_metadata:
+        print(f"  - {skill['name']}: {skill['description'][:50]}...")
 
     # 创建 thinking 模式管理器
     thinking_manager = ThinkingModeManager(config)
 
-    # 创建 agent 应用 (初始使用普通模式)
-    system_prompt = """你是一个智能助手,可以帮助用户完成各种任务。
+    # 基础系统提示词
+    base_system_prompt = """你是一个智能助手,可以帮助用户完成各种任务。
 你拥有多种工具和能力,包括文件操作、任务规划、网络搜索、计算等。
 请根据用户的需求,合理使用这些工具来完成任务。"""
+
+    # 使用中间件增强系统提示词
+    system_prompt = skills_middleware.enhance_system_prompt(base_system_prompt)
 
     # 创建两个 agent 应用: 普通模式和 thinking 模式
     app_normal = DeepAgentApp(
         config=config,
-        tools=skills,
+        tools=[],  # 新架构下不使用传统 tools
         system_prompt=system_prompt,
     )
 
@@ -166,7 +183,7 @@ def main():
 
     app_thinking = DeepAgentApp(
         config=config_thinking,
-        tools=skills,
+        tools=[],  # 新架构下不使用传统 tools
         system_prompt=system_prompt,
     )
 

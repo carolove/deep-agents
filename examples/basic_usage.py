@@ -9,35 +9,53 @@ sys.path.insert(0, str(project_root))
 from dotenv import load_dotenv
 from src.core import load_config, setup_logger
 from src.core.agent import DeepAgentApp
-from src.utils import load_skills
+from src.skills import SkillsMiddleware
 
 
 def main():
     """主函数"""
     # 加载环境变量
     load_dotenv()
-    
+
     # 加载配置
     config = load_config()
-    
+
     # 设置日志
     setup_logger(
         log_file=config.log.file,
         log_level=config.log.level,
     )
-    
-    # 加载 skills
-    skills = load_skills()
-    print(f"\n已加载 {len(skills)} 个 skills")
-    
-    # 创建 agent 应用
-    system_prompt = """你是一个智能助手,可以帮助用户完成各种任务。
+
+    # 加载 skills (使用新的 SKILL.md 方式)
+    print("\n" + "="*50)
+    print("加载 Skills...")
+    print("-"*50)
+
+    # 创建 skills 中间件
+    skills_middleware = SkillsMiddleware(
+        skills_dir=Path.home() / ".deep-agents/agent/skills",
+        assistant_id="agent",
+        project_skills_dir=project_root / "src/skills",
+    )
+
+    # 加载并显示 skills
+    skills_metadata = skills_middleware.load_skills()
+    print(f"\n已加载 {len(skills_metadata)} 个 skills:")
+    for skill in skills_metadata:
+        print(f"  - {skill['name']}: {skill['description'][:50]}...")
+
+    # 基础系统提示词
+    base_system_prompt = """你是一个智能助手,可以帮助用户完成各种任务。
 你拥有多种工具和能力,包括文件操作、任务规划、网络搜索等。
 请根据用户的需求,合理使用这些工具来完成任务。"""
-    
+
+    # 使用中间件增强系统提示词
+    system_prompt = skills_middleware.enhance_system_prompt(base_system_prompt)
+
+    # 创建 agent 应用
     app = DeepAgentApp(
         config=config,
-        tools=skills,
+        tools=[],  # 新架构下不使用传统 tools
         system_prompt=system_prompt,
     )
     
