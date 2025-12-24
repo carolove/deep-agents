@@ -82,12 +82,13 @@ class SkillsMiddleware:
             assistant_id: Agent 标识符。
             project_skills_dir: 项目级 skills 目录的可选路径。
         """
-        self.skills_dir = Path(skills_dir).expanduser()
+        self.skills_dir = Path(skills_dir).expanduser().resolve()
         self.assistant_id = assistant_id
         self.project_skills_dir = (
-            Path(project_skills_dir).expanduser() if project_skills_dir else None
+            Path(project_skills_dir).expanduser().resolve() if project_skills_dir else None
         )
-        self.user_skills_display = f"~/.deep-agents/{assistant_id}/skills"
+        # 使用绝对路径，避免 ~ 符号导致的路径遍历检测问题
+        self.user_skills_display = str(self.skills_dir)
         self.system_prompt_template = SKILLS_SYSTEM_PROMPT
         self._skills_metadata: List[SkillMetadata] = []
 

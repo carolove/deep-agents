@@ -159,10 +159,13 @@ def _parse_skill_metadata(skill_md_path: Path, source: str) -> SkillMetadata | N
             logger.warning("描述超过 %d 字符，将被截断 %s", MAX_SKILL_DESCRIPTION_LENGTH, skill_md_path)
             description_str = description_str[:MAX_SKILL_DESCRIPTION_LENGTH]
 
+        # 使用绝对路径，避免路径遍历检测问题
+        absolute_path = str(skill_md_path.resolve())
+
         return SkillMetadata(
             name=str(name),
             description=description_str,
-            path=str(skill_md_path),
+            path=absolute_path,
             source=source,
             license=frontmatter_data.get("license"),
             compatibility=frontmatter_data.get("compatibility"),
