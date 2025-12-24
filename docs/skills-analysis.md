@@ -393,6 +393,106 @@ flowchart TB
     style CLI fill:#e8f5e9,stroke:#2e7d32
     style Framework fill:#e3f2fd,stroke:#1565c0
 ```
+
+### 当前skills middleware的加载逻辑
+```mermaid
+flowchart TB
+    subgraph App["DeepAgentApp"]
+        A1["config"]
+        A2["tools=[]"]
+        A3["system_prompt"]
+        A4["middleware=[SkillsMiddleware]"]
+    end
+    
+    subgraph SM["SkillsMiddleware (AgentMiddleware)"]
+        direction TB
+        S1["state_schema = SkillsState"]
+        S2["before_agent()"]
+        S3["wrap_model_call()"]
+        S4["awrap_model_call()"]
+        
+        S2 --> |"加载 skills"| S5["list_skills()"]
+        S3 --> |"注入 system prompt"| S6["格式化 skills 文档"]
+    end
+    
+    subgraph Framework["deepagents 框架内置"]
+        F1["FilesystemMiddleware<br/>read_file, write_file, ls,<br/>edit_file, glob, grep, execute"]
+        F2["TodoListMiddleware"]
+        F3["SubAgentMiddleware"]
+        F4["SummarizationMiddleware"]
+    end
+    
+    subgraph Skills["Skills 目录"]
+        K1["~/.deep-agents/agent/skills/"]
+        K2["project/.deep-agents/skills/"]
+        K3["calculator/SKILL.md"]
+        K4["web-search/SKILL.md"]
+    end
+    
+    A4 --> SM
+    SM --> |"传入 middleware 参数"| Framework
+    S5 --> Skills
+    F1 --> |"Agent 使用<br/>read_file 读取"| K3
+    F1 --> |"Agent 使用<br/>execute 执行"| K4
+    
+    style App fill:#e3f2fd,stroke:#1565c0
+    style SM fill:#e8f5e9,stroke:#2e7d32
+    style Framework fill:#fff3e0,stroke:#f57c00
+    style Skills fill:#f3e5f5,stroke:#7b1fa2
+```
+
+### 加载sandbox filesystem 后端
+```mermaid
+flowchart TB
+    subgraph Problem["❌ 之前的问题"]
+        P1["Agent 看到空目录"]
+        P2["默认使用 StateBackend<br/>(内存中的临时存储)"]
+        P1 --> P2
+    end
+    
+    subgraph Solution["✅ 解决方案"]
+        S1["配置 FilesystemBackend<br/>root_dir=项目目录"]
+        S2["传入 create_deep_agent<br/>backend 参数"]
+        S1 --> S2
+    end
+    
+    subgraph Backends["deepagents.backends 后端类型"]
+        B1["StateBackend<br/>(默认，内存临时存储)"]
+        B2["FilesystemBackend<br/>(真实文件系统)"]
+        B3["StoreBackend<br/>(持久化存储)"]
+        B4["CompositeBackend<br/>(混合路由)"]
+    end
+    
+    subgraph DeepAgentApp["DeepAgentApp 配置"]
+        D1["working_dir: Path<br/>Agent 工作目录"]
+        D2["FilesystemBackend(root_dir=working_dir)"]
+        D3["create_deep_agent(backend=...)"]
+        D1 --> D2 --> D3
+    end
+    
+    subgraph Tools["Agent 获得的工具"]
+        T1["ls - 列出目录"]
+        T2["read_file - 读取文件"]
+        T3["write_file - 写入文件"]
+        T4["edit_file - 编辑文件"]
+        T5["glob - 文件匹配"]
+        T6["grep - 搜索内容"]
+        T7["execute - 执行命令<br/>(需要 SandboxBackend)"]
+    end
+    
+    B2 --> Tools
+    
+    style Problem fill:#ffebee,stroke:#c62828
+    style Solution fill:#e8f5e9,stroke:#2e7d32
+    style Backends fill:#e3f2fd,stroke:#1565c0
+    style DeepAgentApp fill:#fff3e0,stroke:#f57c00
+    style Tools fill:#f3e5f5,stroke:#7b1fa2
+```
+
+### 是否需要 Sandbox？ 取决于你的需求：
+不需要 Sandbox - 如果只需要文件读写操作（ls, read_file, write_file, edit_file, glob, grep），FilesystemBackend 就足够了
+- 需要 Sandbox - 如果需要 execute 工具执行 shell 命令，需要实现 SandboxBackendProtocol（如 DockerSandboxBackend）
+
 ## 八、总结
 
 本项目**完整实现了 Anthropic Agent Skills 规范**，核心价值在于：

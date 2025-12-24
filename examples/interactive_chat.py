@@ -141,40 +141,39 @@ def main():
         log_level=config.log.level,
     )
 
-    # 加载 skills (使用新的 SKILL.md 方式)
+    # 创建 skills 中间件 (真正的 AgentMiddleware)
     print("\n" + "="*60)
-    print("加载 Skills...")
+    print("创建 Skills 中间件...")
     print("-"*60)
 
-    # 创建 skills 中间件
     skills_middleware = SkillsMiddleware(
         skills_dir=Path.home() / ".deep-agents/agent/skills",
         assistant_id="agent",
         project_skills_dir=project_root / "src/skills",
     )
 
-    # 加载并显示 skills
-    skills_metadata = skills_middleware.load_skills()
-    print(f"\n已加载 {len(skills_metadata)} 个 skills:")
-    for skill in skills_metadata:
-        print(f"  - {skill['name']}: {skill['description'][:50]}...")
+    print(f"Skills 中间件已创建")
+    print(f"  - 用户 skills 目录: {skills_middleware.skills_dir}")
+    print(f"  - 项目 skills 目录: {skills_middleware.project_skills_dir}")
 
     # 创建 thinking 模式管理器
     thinking_manager = ThinkingModeManager(config)
 
     # 基础系统提示词
+    # Skills 信息会通过 SkillsMiddleware.wrap_model_call() 自动注入
     base_system_prompt = """你是一个智能助手,可以帮助用户完成各种任务。
 你拥有多种工具和能力,包括文件操作、任务规划、网络搜索、计算等。
 请根据用户的需求,合理使用这些工具来完成任务。"""
 
-    # 使用中间件增强系统提示词
-    system_prompt = skills_middleware.enhance_system_prompt(base_system_prompt)
-
     # 创建两个 agent 应用: 普通模式和 thinking 模式
+    # - FilesystemBackend 配置真实文件系统访问
+    # - SkillsMiddleware 自动加载和注入 skills
     app_normal = DeepAgentApp(
         config=config,
-        tools=[],  # 新架构下不使用传统 tools
-        system_prompt=system_prompt,
+        tools=[],
+        system_prompt=base_system_prompt,
+        middleware=[skills_middleware],
+        working_dir=project_root,  # 设置工作目录为项目根目录
     )
 
     # 创建 thinking 模式的配置
@@ -183,8 +182,10 @@ def main():
 
     app_thinking = DeepAgentApp(
         config=config_thinking,
-        tools=[],  # 新架构下不使用传统 tools
-        system_prompt=system_prompt,
+        tools=[],
+        system_prompt=base_system_prompt,
+        middleware=[skills_middleware],
+        working_dir=project_root,  # 设置工作目录为项目根目录
     )
 
     # 创建 prompt session

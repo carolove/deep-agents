@@ -1,9 +1,12 @@
 """Deep Agent 核心应用"""
+import os
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Callable
 from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, ToolMessage
 from langchain_anthropic import ChatAnthropic
 from deepagents import create_deep_agent
+from deepagents.backends import FilesystemBackend
 from langgraph.graph.state import CompiledStateGraph
 
 from .config import AppConfig
@@ -16,7 +19,7 @@ logger = get_logger("agent")
 
 class DeepAgentApp:
     """Deep Agent 应用封装"""
-    
+
     def __init__(
         self,
         config: AppConfig,
@@ -24,22 +27,28 @@ class DeepAgentApp:
         system_prompt: Optional[str] = None,
         middleware: Optional[List[Any]] = None,
         subagents: Optional[List[Any]] = None,
+        working_dir: Optional[str | Path] = None,
     ):
         """
         初始化 Deep Agent 应用
-        
+
         Args:
             config: 应用配置
             tools: 自定义工具列表
             system_prompt: 系统提示词
             middleware: 中间件列表
             subagents: 子代理列表
+            working_dir: Agent 工作目录（真实文件系统根目录）。
+                         如果为 None，使用当前工作目录。
         """
         self.config = config
         self.tools = tools or []
         self.system_prompt = system_prompt
         self.middleware = middleware or []
         self.subagents = subagents or []
+
+        # 设置工作目录
+        self.working_dir = Path(working_dir or os.getcwd()).resolve()
 
         # 初始化日志回调
         self.callbacks = [AgentLoggingCallback(verbose=True)]
@@ -53,6 +62,7 @@ class DeepAgentApp:
         logger.info("="*60)
         logger.info("初始化 Deep Agent 应用")
         logger.info("="*60)
+        logger.info(f"工作目录: {self.working_dir}")
 
         # 初始化模型
         self.model = self._create_model()
@@ -84,20 +94,26 @@ class DeepAgentApp:
     
     def _create_agent(self) -> CompiledStateGraph:
         """创建 Deep Agent"""
+        # 配置 FilesystemBackend 使用真实文件系统
+        # 这让 Agent 的 ls, read_file, write_file 等工具能访问真实文件
+        filesystem_backend = FilesystemBackend(root_dir=self.working_dir)
+        logger.info(f"FilesystemBackend 配置: root_dir={self.working_dir}")
+
         agent_kwargs = {
             "model": self.model,
             "tools": self.tools,
+            "backend": filesystem_backend,  # 使用真实文件系统后端
         }
-        
+
         if self.system_prompt:
             agent_kwargs["system_prompt"] = self.system_prompt
-        
+
         if self.middleware:
             agent_kwargs["middleware"] = self.middleware
-        
+
         if self.subagents:
             agent_kwargs["subagents"] = self.subagents
-        
+
         logger.info(f"创建 Deep Agent: tools={len(self.tools)}, middleware={len(self.middleware)}")
         return create_deep_agent(**agent_kwargs)
     

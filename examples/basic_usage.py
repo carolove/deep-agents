@@ -62,15 +62,15 @@ def main():
 请根据用户的需求,合理使用这些工具和 skills 来完成任务。
 当需要使用 skill 时,先用 read_file 读取 SKILL.md 获取完整说明。"""
 
-    # 创建 agent 应用，传入 middleware 参数
-    # SkillsMiddleware 会自动:
-    # - before_agent(): 每次交互前加载 skills
-    # - wrap_model_call(): 每次 model 调用时注入 skills 到 system prompt
+    # 创建 agent 应用
+    # - FilesystemBackend 配置真实文件系统访问
+    # - SkillsMiddleware 自动加载和注入 skills
     app = DeepAgentApp(
         config=config,
-        tools=[],  # 不需要额外工具，框架已提供 FilesystemMiddleware
+        tools=[],
         system_prompt=base_system_prompt,
-        middleware=[skills_middleware],  # 传入 middleware 而不是 tools
+        middleware=[skills_middleware],
+        working_dir=project_root,  # 设置工作目录为项目根目录
     )
     
     # 测试对话
