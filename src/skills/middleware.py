@@ -3,7 +3,8 @@
 这个中间件实现 Anthropic 的 "Agent Skills" 模式，采用渐进式披露:
 1. 在会话开始时从 SKILL.md 文件解析 YAML frontmatter
 2. 将 skills 元数据 (name + description) 注入系统提示词
-3. 当 skill 与任务相关时，Agent 读取完整的 SKILL.md 内容
+3. 当 skill 与任务相关时，Agent 使用文件系统工具读取完整的 SKILL.md 内容
+4. Agent 使用 bash 工具执行 skill 中的脚本
 
 Skills 目录结构 (每个 agent + 项目):
 用户级: ~/.deep-agents/{AGENT_NAME}/skills/
@@ -11,10 +12,11 @@ Skills 目录结构 (每个 agent + 项目):
 """
 
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Callable
 
 from .load import SkillMetadata, list_skills
 from ..core.logger import get_logger
+from ..tools.filesystem import get_filesystem_tools
 
 logger = get_logger("skills.middleware")
 
@@ -175,3 +177,18 @@ class SkillsMiddleware:
         logger.info(f"使用纯 skills 提示词: {len(skills_section)} 字符")
         return skills_section
 
+    def get_tools(self) -> List[Callable]:
+        """获取 skills 系统需要的工具列表。
+
+        返回文件系统工具，让 Agent 能够:
+        - 读取 SKILL.md 获取完整说明
+        - 读取 references/ 目录中的参考文档
+        - 执行 skill 脚本
+        - 列出 skill 目录内容
+
+        Returns:
+            LangChain 工具列表
+        """
+        tools = get_filesystem_tools()
+        logger.info(f"Skills 中间件提供 {len(tools)} 个工具: {[t.name for t in tools]}")
+        return tools

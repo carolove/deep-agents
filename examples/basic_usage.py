@@ -1,4 +1,12 @@
-"""基础使用示例"""
+"""基础使用示例 - 展示 Anthropic Skills 渐进式披露模式
+
+这个示例展示:
+1. 加载 skills 元数据 (name + description)
+2. 将元数据注入系统提示词
+3. 提供文件系统工具让 Agent 能够:
+   - 使用 read_file 读取 SKILL.md 获取完整说明
+   - 使用 bash_execute 执行 skill 脚本
+"""
 import sys
 from pathlib import Path
 
@@ -26,9 +34,9 @@ def main():
         log_level=config.log.level,
     )
 
-    # 加载 skills (使用新的 SKILL.md 方式)
+    # 加载 skills (使用 Anthropic Skills 渐进式披露模式)
     print("\n" + "="*50)
-    print("加载 Skills...")
+    print("加载 Skills (Anthropic Skills 模式)...")
     print("-"*50)
 
     # 创建 skills 中间件
@@ -44,18 +52,27 @@ def main():
     for skill in skills_metadata:
         print(f"  - {skill['name']}: {skill['description'][:50]}...")
 
+    # 获取 skills 需要的工具 (文件系统工具)
+    skills_tools = skills_middleware.get_tools()
+    print(f"\nSkills 工具: {[t.name for t in skills_tools]}")
+
     # 基础系统提示词
     base_system_prompt = """你是一个智能助手,可以帮助用户完成各种任务。
-你拥有多种工具和能力,包括文件操作、任务规划、网络搜索等。
-请根据用户的需求,合理使用这些工具来完成任务。"""
 
-    # 使用中间件增强系统提示词
+你拥有文件系统工具,可以:
+- 使用 read_file 读取文件内容
+- 使用 bash_execute 执行命令和脚本
+- 使用 list_directory 查看目录内容
+
+请根据用户的需求,合理使用这些工具和 skills 来完成任务。"""
+
+    # 使用中间件增强系统提示词 (注入 skills 信息)
     system_prompt = skills_middleware.enhance_system_prompt(base_system_prompt)
 
-    # 创建 agent 应用
+    # 创建 agent 应用，传入 skills 工具
     app = DeepAgentApp(
         config=config,
-        tools=[],  # 新架构下不使用传统 tools
+        tools=skills_tools,  # 使用 skills 提供的文件系统工具
         system_prompt=system_prompt,
     )
     
