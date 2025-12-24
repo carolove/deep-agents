@@ -1,132 +1,107 @@
-"""Skills 管理模块"""
-import importlib
-import inspect
+"""Skills 管理模块 - 基于 SKILL.md 的动态加载能力。
+
+目录结构示例:
+skills/
+├── calculator/
+│   ├── SKILL.md        # 必需: 包含 YAML frontmatter 和说明
+│   ├── calculator.py   # 可选: 支持脚本
+│   └── config.json     # 可选: 配置文件
+├── web-search/
+│   └── SKILL.md
+"""
+
 from pathlib import Path
-from typing import List, Callable, Optional
-from langchain_core.tools import tool
+from typing import List, Optional
 
 from ..core.logger import get_logger
+from ..skills import SkillMetadata, SkillsMiddleware, list_skills as list_skill_md
 
 logger = get_logger("skills")
 
 
 class SkillManager:
-    """Skills 管理器"""
-    
-    def __init__(self, skills_dir: str = "src/skills"):
+    """Skills 管理器 - 基于 SKILL.md 的动态加载"""
+
+    def __init__(
+        self,
+        user_skills_dir: Optional[str] = None,
+        project_skills_dir: Optional[str] = None,
+        assistant_id: str = "agent",
+    ):
         """
         初始化 Skills 管理器
-        
+
         Args:
-            skills_dir: skills 目录路径
+            user_skills_dir: 用户级 SKILL.md 目录路径
+            project_skills_dir: 项目级 SKILL.md 目录路径
+            assistant_id: Agent 标识符
         """
-        self.skills_dir = Path(skills_dir)
-        self.skills: List[Callable] = []
-        logger.info(f"Skills 管理器初始化: dir={skills_dir}")
-    
-    def load_skills(self) -> List[Callable]:
+        self.user_skills_dir = Path(user_skills_dir).expanduser() if user_skills_dir else None
+        self.project_skills_dir = Path(project_skills_dir).expanduser() if project_skills_dir else None
+        self.assistant_id = assistant_id
+
+        # 存储加载的 skills
+        self.skill_metadata: List[SkillMetadata] = []
+
+        # Skills 中间件
+        self._middleware: Optional[SkillsMiddleware] = None
+
+        logger.info(f"Skills 管理器初始化: assistant_id={assistant_id}")
+
+    def load_skills(self) -> List[SkillMetadata]:
         """
-        加载所有 skills
-        
+        加载所有 SKILL.md skills
+
         Returns:
-            skills 列表
+            SkillMetadata 列表
         """
-        if not self.skills_dir.exists():
-            logger.warning(f"Skills 目录不存在: {self.skills_dir}")
-            return []
-        
-        # 查找所有 Python 文件
-        skill_files = list(self.skills_dir.glob("*.py"))
-        skill_files = [f for f in skill_files if f.name != "__init__.py"]
-        
-        logger.info(f"发现 {len(skill_files)} 个 skill 文件")
-        
-        for skill_file in skill_files:
-            try:
-                self._load_skill_file(skill_file)
-            except Exception as e:
-                logger.error(f"加载 skill 文件失败 {skill_file}: {e}")
-        
-        logger.info(f"成功加载 {len(self.skills)} 个 skills")
-        return self.skills
-    
-    def _load_skill_file(self, skill_file: Path) -> None:
-        """
-        加载单个 skill 文件
+        self.skill_metadata = list_skill_md(
+            user_skills_dir=self.user_skills_dir,
+            project_skills_dir=self.project_skills_dir,
+        )
+        logger.info(f"成功加载 {len(self.skill_metadata)} 个 skills")
+        return self.skill_metadata
 
-        Args:
-            skill_file: skill 文件路径
-        """
-        # 构建模块名
-        module_name = f"src.skills.{skill_file.stem}"
+    def get_middleware(self) -> SkillsMiddleware:
+        """获取 Skills 中间件实例"""
+        if self._middleware is None:
+            self._middleware = SkillsMiddleware(
+                skills_dir=self.user_skills_dir or Path.home() / f".deep-agents/{self.assistant_id}/skills",
+                assistant_id=self.assistant_id,
+                project_skills_dir=self.project_skills_dir,
+            )
+        return self._middleware
 
-        try:
-            # 动态导入模块
-            module = importlib.import_module(module_name)
-
-            # 查找所有函数
-            for name, obj in inspect.getmembers(module):
-                # 跳过私有函数和导入的对象
-                if name.startswith("_"):
-                    continue
-
-                # 检查是否是 LangChain StructuredTool
-                # @tool 装饰器会创建一个 StructuredTool 对象
-                if (hasattr(obj, "name") and
-                    hasattr(obj, "description") and
-                    hasattr(obj, "func")):
-                    # 检查是否定义在当前模块
-                    if hasattr(obj.func, "__module__") and obj.func.__module__ == module.__name__:
-                        self.skills.append(obj)
-                        logger.debug(f"加载 skill: {obj.name} from {skill_file.name}")
-
-        except Exception as e:
-            logger.error(f"导入模块失败 {module_name}: {e}")
-            raise
-    
-    def get_skill(self, name: str) -> Optional[Callable]:
-        """
-        根据名称获取 skill
-        
-        Args:
-            name: skill 名称
-            
-        Returns:
-            skill 函数或 None
-        """
-        for skill in self.skills:
-            if hasattr(skill, "name") and skill.name == name:
-                return skill
-            elif hasattr(skill, "__name__") and skill.__name__ == name:
+    def get_skill(self, name: str) -> Optional[SkillMetadata]:
+        """根据名称获取 skill 元数据"""
+        for skill in self.skill_metadata:
+            if skill["name"] == name:
                 return skill
         return None
-    
+
     def list_skills(self) -> List[str]:
-        """
-        列出所有 skill 名称
-        
-        Returns:
-            skill 名称列表
-        """
-        names = []
-        for skill in self.skills:
-            if hasattr(skill, "name"):
-                names.append(skill.name)
-            elif hasattr(skill, "__name__"):
-                names.append(skill.__name__)
-        return names
+        """列出所有 skill 名称"""
+        return [skill["name"] for skill in self.skill_metadata]
 
 
-def load_skills(skills_dir: str = "src/skills") -> List[Callable]:
+def load_skills(
+    user_skills_dir: Optional[str] = None,
+    project_skills_dir: Optional[str] = None,
+) -> List[SkillMetadata]:
     """
-    便捷函数:加载所有 skills
-    
+    便捷函数: 加载所有 SKILL.md skills
+
     Args:
-        skills_dir: skills 目录路径
-        
-    Returns:
-        skills 列表
-    """
-    manager = SkillManager(skills_dir)
-    return manager.load_skills()
+        user_skills_dir: 用户级 skills 目录
+        project_skills_dir: 项目级 skills 目录
 
+    Returns:
+        SkillMetadata 列表
+    """
+    user_path = Path(user_skills_dir).expanduser() if user_skills_dir else None
+    project_path = Path(project_skills_dir).expanduser() if project_skills_dir else None
+
+    return list_skill_md(
+        user_skills_dir=user_path,
+        project_skills_dir=project_path,
+    )

@@ -46,6 +46,14 @@ class TavilyConfig:
 
 
 @dataclass
+class SkillsConfig:
+    """Skills 配置"""
+    user_skills_dir: Optional[str] = None  # 用户级 skills 目录，默认 ~/.deep-agents/{agent}/skills
+    project_skills_dir: Optional[str] = None  # 项目级 skills 目录
+    assistant_id: str = "agent"  # Agent 标识符
+
+
+@dataclass
 class AppConfig:
     """应用配置"""
     server: ServerConfig = field(default_factory=ServerConfig)
@@ -53,6 +61,7 @@ class AppConfig:
     tracing: TracingConfig = field(default_factory=TracingConfig)
     anthropic: AnthropicConfig = field(default_factory=AnthropicConfig)
     tavily: TavilyConfig = field(default_factory=TavilyConfig)
+    skills: SkillsConfig = field(default_factory=SkillsConfig)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AppConfig":
@@ -63,6 +72,7 @@ class AppConfig:
             tracing=TracingConfig(**data.get("tracing", {})),
             anthropic=AnthropicConfig(**data.get("anthropic", {})),
             tavily=TavilyConfig(**data.get("tavily", {})),
+            skills=SkillsConfig(**data.get("skills", {})),
         )
 
     def apply_env_overrides(self) -> None:
