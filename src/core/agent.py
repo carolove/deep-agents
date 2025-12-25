@@ -6,12 +6,12 @@ from typing import Any, Dict, List, Optional, Callable
 from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, ToolMessage
 from langchain_anthropic import ChatAnthropic
 from deepagents import create_deep_agent
-from deepagents.backends import FilesystemBackend
 from langgraph.graph.state import CompiledStateGraph
 
 from .config import AppConfig
 from .logger import get_logger
 from .tracer import LLMTracer
+from .sandbox_backend import SandboxBackend
 from .callbacks import AgentLoggingCallback
 
 logger = get_logger("agent")
@@ -94,15 +94,15 @@ class DeepAgentApp:
     
     def _create_agent(self) -> CompiledStateGraph:
         """创建 Deep Agent"""
-        # 配置 FilesystemBackend 使用真实文件系统
-        # 这让 Agent 的 ls, read_file, write_file 等工具能访问真实文件
-        filesystem_backend = FilesystemBackend(root_dir=self.working_dir)
-        logger.info(f"FilesystemBackend 配置: root_dir={self.working_dir}")
+        # 配置 SandboxBackend 使用真实文件系统和命令执行
+        # 这让 Agent 的 ls, read_file, write_file, execute 等工具能正常工作
+        sandbox_backend = SandboxBackend(root_dir=self.working_dir)
+        logger.info(f"SandboxBackend 配置: root_dir={self.working_dir}")
 
         agent_kwargs = {
             "model": self.model,
             "tools": self.tools,
-            "backend": filesystem_backend,  # 使用真实文件系统后端
+            "backend": sandbox_backend,  # 使用支持 execute 的沙箱后端
         }
 
         if self.system_prompt:

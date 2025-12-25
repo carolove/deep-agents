@@ -159,21 +159,54 @@ def main():
     # 创建 thinking 模式管理器
     thinking_manager = ThinkingModeManager(config)
 
-    # 基础系统提示词
+    # 基础系统提示词 (参考 deepagents-cli)
     # Skills 信息会通过 SkillsMiddleware.wrap_model_call() 自动注入
-    base_system_prompt = """你是一个智能助手,可以帮助用户完成各种任务。
-你拥有多种工具和能力,包括文件操作、任务规划、网络搜索、计算等。
-请根据用户的需求,合理使用这些工具来完成任务。"""
+    base_system_prompt = f"""你是一个智能助手，可以帮助用户完成各种任务。
+
+## 当前工作目录
+
+工作目录: `{project_root}`
+
+## 可用工具
+
+你有以下文件系统工具 (由 deepagents 框架提供):
+- `read_file`: 读取文件内容
+- `write_file`: 写入文件
+- `ls`: 列出目录
+- `execute`: 执行 shell 命令
+- `edit_file`: 编辑文件
+
+## 使用 Skills 执行任务
+
+当需要使用 skill 完成任务时，按以下步骤操作:
+
+1. **阅读 skill 说明**: 使用 `read_file` 读取 SKILL.md 获取完整说明
+2. **执行 skill 脚本**: 使用 `execute` 工具直接执行脚本
+
+示例:
+```
+execute(command="python /path/to/skill/script.py 参数")
+```
+
+**重要规则**:
+- 直接使用 `execute` 工具执行 skill 脚本
+- **不要使用 `task` 工具委托给子代理** - 这会导致不必要的延迟
+- 执行完成后，将结果综合成自然语言回复用户
+
+## 风格和语气
+
+- 简洁直接地回答问题
+- 完成任务后不要过度解释
+- 绝不要直接显示原始 JSON 给用户"""
 
     # 创建两个 agent 应用: 普通模式和 thinking 模式
-    # - FilesystemBackend 配置真实文件系统访问
-    # - SkillsMiddleware 自动加载和注入 skills
+    # - SkillsMiddleware 自动加载和注入 skills 到 system prompt
     app_normal = DeepAgentApp(
         config=config,
-        tools=[],
+        tools=[],  # 不使用额外工具，依赖 skills
         system_prompt=base_system_prompt,
         middleware=[skills_middleware],
-        working_dir=project_root,  # 设置工作目录为项目根目录
+        working_dir=project_root,
     )
 
     # 创建 thinking 模式的配置
@@ -182,10 +215,10 @@ def main():
 
     app_thinking = DeepAgentApp(
         config=config_thinking,
-        tools=[],
+        tools=[],  # 不使用额外工具，依赖 skills
         system_prompt=base_system_prompt,
         middleware=[skills_middleware],
-        working_dir=project_root,  # 设置工作目录为项目根目录
+        working_dir=project_root,
     )
 
     # 创建 prompt session

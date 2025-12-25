@@ -66,8 +66,18 @@ Skills 遵循**渐进式披露**模式 - 你知道它们存在（上面显示的
 3. **按照 skill 的说明操作**: SKILL.md 包含分步工作流、最佳实践和示例
 4. **访问支持文件**: Skills 可能包含 Python 脚本、配置或参考文档 - 使用绝对路径
 
+**执行 Skill 脚本:**
+
+Skills 可能包含 Python 脚本或其他可执行文件。执行时必须使用 `execute` 工具和绝对路径:
+
+```
+execute(command="python /path/to/skill/script.py args")
+```
+
+**重要**: 直接使用 `execute` 工具执行脚本，不要使用 `task` 工具委托给子代理。
+
 **何时使用 Skills:**
-- 当用户的请求匹配 skill 的领域时（例如，"研究 X" → web-research skill）
+- 当用户的请求匹配 skill 的领域时（例如，"研究 X" → web-search skill）
 - 当你需要专业知识或结构化工作流时
 - 当 skill 为复杂任务提供经过验证的模式时
 
@@ -75,7 +85,28 @@ Skills 遵循**渐进式披露**模式 - 你知道它们存在（上面显示的
 - 每个 SKILL.md 告诉你 skill 做什么以及如何使用它
 - 上面的 skill 列表显示每个 skill 的 SKILL.md 文件的完整路径
 
-记住: Skills 是让你更强大和一致的工具。如有疑问，检查是否存在适用于该任务的 skill！
+**示例工作流 - Web Search:**
+
+用户: "搜索一下最新的量子计算发展"
+
+1. 识别需要使用 web-search skill
+2. 直接执行搜索脚本:
+   ```
+   execute(command="python <skill的SKILL.md所在目录>/web_search.py '量子计算 最新发展' --max-results 5")
+   ```
+3. 阅读执行结果并整理成自然语言回复用户
+
+**快速执行方法:**
+
+当看到 web-search skill 时，从上面列表中找到其 SKILL.md 路径，然后:
+- 路径是 `/path/to/web-search/SKILL.md`
+- 则脚本是 `/path/to/web-search/web_search.py`
+
+**禁止事项:**
+- ❌ 不要使用 `task` 工具委托搜索任务
+- ❌ 不要在简单搜索前花时间读取 SKILL.md
+
+记住: Skills 是让你更强大和一致的工具。直接使用 execute 执行 skill 脚本！
 """
 
 
